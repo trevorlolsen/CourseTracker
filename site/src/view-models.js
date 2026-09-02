@@ -23,7 +23,7 @@ export function buildLibraryViewModel(courses, videosByCourseId, filters) {
   return { continueCourses, allCourses, allTags, progressByCourseId }
 }
 
-export function buildCourseViewModel(course, videos, { requestedVideoId, showRemoved }) {
+export function buildCourseViewModel(course, videos, { requestedVideoId, showRemoved, hideWatched = false }) {
   const ordered = [...videos].sort((a, b) => a.position - b.position)
   const active = ordered.filter((video) => video.removedAt === undefined)
   // Retired lessons are a separate list so their historic numbering can never
@@ -33,13 +33,22 @@ export function buildCourseViewModel(course, videos, { requestedVideoId, showRem
     .sort((a, b) => (a.archivedPosition ?? a.position) - (b.archivedPosition ?? b.position))
   const requested = active.find((video) => video.videoId === requestedVideoId)
   const current = requested ?? selectContinueVideo(active, course.currentVideoId) ?? active[0]
+
+  // The lesson being watched always stays listed, even once it is complete.
+  // Otherwise marking it watched would make its row disappear out from under
+  // the viewer, who then has nothing on screen showing where they are.
+  const visibleActive = hideWatched
+    ? active.filter((video) => !video.watched || video.videoId === current?.videoId)
+    : active
   return {
+    // Progress counts every active lesson, never just the visible ones.
     progress: calculateCourseProgress(ordered),
     currentVideo: current,
     activeVideos: active,
     removedVideos: removed,
-    visibleVideos: showRemoved ? [...active, ...removed] : active,
+    visibleVideos: showRemoved ? [...visibleActive, ...removed] : visibleActive,
     removedCount: removed.length,
+    hiddenWatchedCount: active.length - visibleActive.length,
   }
 }
 

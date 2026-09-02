@@ -28,6 +28,36 @@ test('course model honors requested lesson and hides removed lessons by default'
   assert.deepEqual(model.progress, { watched: 1, active: 2, percent: 50 })
 })
 
+test('hideWatched filters completed lessons without changing progress', () => {
+  const c = { ...course('c1', 'Rust', ['Rust']), currentVideoId: 'v3' }
+  const videos = [
+    video('c1', 'v1', 0, true), video('c1', 'v2', 1, true),
+    video('c1', 'v3', 2), video('c1', 'v4', 3),
+  ]
+  const model = buildCourseViewModel(c, videos, { hideWatched: true, showRemoved: false })
+  assert.deepEqual(model.visibleVideos.map((v) => v.videoId), ['v3', 'v4'])
+  assert.equal(model.hiddenWatchedCount, 2)
+  // The filter is a view concern; the course is still half complete.
+  assert.deepEqual(model.progress, { watched: 2, active: 4, percent: 50 })
+})
+
+test('hideWatched keeps the current lesson listed once it is watched', () => {
+  const c = { ...course('c1', 'Rust', ['Rust']), currentVideoId: 'v1' }
+  const videos = [video('c1', 'v1', 0, true), video('c1', 'v2', 1, true), video('c1', 'v3', 2)]
+  const model = buildCourseViewModel(c, videos, { requestedVideoId: 'v1', hideWatched: true, showRemoved: false })
+  assert.equal(model.currentVideo.videoId, 'v1')
+  // v1 survives the filter because it is the lesson on screen; v2 does not.
+  assert.deepEqual(model.visibleVideos.map((v) => v.videoId), ['v1', 'v3'])
+  assert.equal(model.hiddenWatchedCount, 1)
+})
+
+test('hideWatched still lists removed lessons when they are shown', () => {
+  const c = { ...course('c1', 'Rust', ['Rust']), currentVideoId: 'v2' }
+  const videos = [video('c1', 'v1', 0, true), video('c1', 'v2', 1), video('c1', 'old', 2, true, 99)]
+  const model = buildCourseViewModel(c, videos, { hideWatched: true, showRemoved: true })
+  assert.deepEqual(model.visibleVideos.map((v) => v.videoId), ['v2', 'old'])
+})
+
 test('playlist input parser keeps one item per playlist id and reports invalid lines', () => {
   const parsed = parsePlaylistInputs(`https://youtube.com/playlist?list=PL1\nnope\nhttps://youtu.be/x?list=PL1\nhttps://youtube.com/playlist?list=PL2`)
   assert.deepEqual(parsed.valid.map((x) => x.playlistId), ['PL1', 'PL2'])

@@ -48,6 +48,10 @@ export async function renderCoursePage(container, { store, courseId, query }) {
   let currentVideo
   let model
   let showRemoved = false
+  // Opens filtered: a half-finished course should show what is left to watch,
+  // not bury it under rows the viewer is already done with. Page-local like
+  // showRemoved, so it resets on navigation rather than becoming a setting.
+  let hideWatched = true
   let refreshSummary
   let pendingRefresh = null
   let editing = false
@@ -94,6 +98,7 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       destroyed = true
       clearInterval(autosave)
       document.removeEventListener('visibilitychange', onVisibility)
+      nodes.releaseLayout()
       void flush(playerHandle?.snapshot?.())
       playerHandle?.destroy?.()
       playerHandle = undefined
@@ -137,16 +142,19 @@ export async function renderCoursePage(container, { store, courseId, query }) {
     const lessonTitle = h('strong')
     const resumeHint = h('div', { className: 'small muted' })
     const currentPanel = h('div', { className: 'panel current-lesson' }, lessonEyebrow, lessonTitle, resumeHint)
+    const playerActions = h('div', { className: 'player-actions' }, watchedButton, nextButton, youtubeLink)
     const playerColumn = h('section', { className: 'player-column' },
-      playerHost, h('div', { className: 'player-actions' }, watchedButton, nextButton, youtubeLink),
-      warningHost, currentPanel)
+      playerHost, playerActions, warningHost, currentPanel)
 
     const disclosure = button('Course Content ▴', { className: 'button button--secondary lesson-disclosure', 'aria-expanded': 'true', 'aria-label': 'Course Content' })
     const lessonCount = h('div', { className: 'small muted' })
+    const watchedToggleInput = h('input', { type: 'checkbox', checked: hideWatched, 'aria-label': 'Hide completed lessons' })
+    const watchedToggle = h('label', { className: 'small muted lesson-toggle' }, watchedToggleInput, ' Hide completed')
     const removedToggleInput = h('input', { type: 'checkbox', 'aria-label': 'Show removed lessons' })
-    const removedToggle = h('label', { className: 'small muted removed-toggle' }, removedToggleInput, ' Show removed lessons')
+    const removedToggle = h('label', { className: 'small muted lesson-toggle removed-toggle' }, removedToggleInput, ' Show removed lessons')
     const lessonHeader = h('div', { className: 'lesson-panel__header' },
-      h('div', {}, h('strong', { text: 'Course Content' }), lessonCount), removedToggle)
+      h('div', {}, h('strong', { text: 'Course Content' }), lessonCount),
+      h('div', { className: 'lesson-panel__toggles' }, watchedToggle, removedToggle))
     const lessonList = h('div', { className: 'lesson-list', role: 'list', 'aria-label': 'Course lessons' })
     const lessonContent = h('div', { className: 'lesson-panel__content' }, lessonList)
     const lessonPanel = h('aside', { className: 'panel lesson-panel' }, disclosure, lessonHeader, lessonContent)
@@ -168,7 +176,23 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       setText(disclosure, contentExpanded ? 'Course Content ▴' : 'Course Content ▾')
       lessonContent.hidden = !contentExpanded
     })
+    // Below the two-column breakpoint the actions move to the end of the page
+    // and stick to the bottom of the viewport, so they stay in reach however
+    // far the viewer has scrolled. The node is MOVED, never copied: a second
+    // set of buttons would give two elements the same accessible name.
+    const wideLayout = window.matchMedia('(min-width: 1024px)')
+    const placeActions = () => {
+      const parent = wideLayout.matches ? playerColumn : page
+      if (playerActions.parentNode === parent) return
+      if (wideLayout.matches) playerColumn.insertBefore(playerActions, warningHost)
+      else page.append(playerActions)
+      setClass(playerActions, `player-actions${wideLayout.matches ? '' : ' player-actions--docked'}`)
+    }
+    wideLayout.addEventListener('change', placeActions)
+    placeActions()
+
     removedToggleInput.addEventListener('change', () => { showRemoved = removedToggleInput.checked; update() })
+    watchedToggleInput.addEventListener('change', () => { hideWatched = watchedToggleInput.checked; update() })
     refreshButton.addEventListener('click', () => void refreshPlaylist())
     retryButton.addEventListener('click', () => void retryLessonDetails())
     exportButton.addEventListener('click', () => void exportCourse())
@@ -182,9 +206,11 @@ export async function renderCoursePage(container, { store, courseId, query }) {
 
     return {
       page, title, tags, bar, caption, refreshButton, retryButton, editButton, editPanel,
-      playerHost, playerColumn, lessonPanel, watchedButton, nextButton, youtubeLink, warningHost,
+      playerHost, playerColumn, playerActions, lessonPanel, watchedButton, nextButton, youtubeLink, warningHost,
       lessonEyebrow, lessonTitle, resumeHint, currentPanel,
-      lessonCount, removedToggle, removedToggleInput, lessonList, summary, duplicateNote, emptyNote,
+      lessonCount, watchedToggle, watchedToggleInput, removedToggle, removedToggleInput,
+      lessonList, summary, duplicateNote, emptyNote,
+      releaseLayout: () => wideLayout.removeEventListener('change', placeActions),
     }
   }
 
@@ -218,7 +244,7 @@ export async function renderCoursePage(container, { store, courseId, query }) {
   // ------------------------------------------------------------------ render
 
   function recomputeModel(requestId = currentVideo?.videoId) {
-    model = buildCourseViewModel(course, videos, { requestedVideoId: requestId, showRemoved })
+    model = buildCourseViewModel(course, videos, { requestedVideoId: requestId, showRemoved, hideWatched })
     currentVideo = model.currentVideo
   }
 
@@ -249,6 +275,9 @@ export async function renderCoursePage(container, { store, courseId, query }) {
     const hasLesson = Boolean(currentVideo)
     nodes.emptyNote.hidden = hasLesson
     nodes.playerColumn.hidden = !hasLesson
+    // Hidden in its own right: while docked the actions sit outside the player
+    // column, so hiding the column no longer takes them with it.
+    nodes.playerActions.hidden = !hasLesson
     nodes.lessonPanel.hidden = !hasLesson
 
     if (hasLesson) {
@@ -262,7 +291,12 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       if (showResume) setText(nodes.resumeHint, `Resume at ${formatDuration(currentVideo.resumeSeconds)}`)
     }
 
-    setText(nodes.lessonCount, `${model.progress.watched} / ${model.progress.active} completed`)
+    const hiddenNote = model.hiddenWatchedCount > 0 ? ` · ${model.hiddenWatchedCount} hidden` : ''
+    setText(nodes.lessonCount, `${model.progress.watched} / ${model.progress.active} completed${hiddenNote}`)
+    // Offering the filter before anything is complete would only be a control
+    // that does nothing.
+    nodes.watchedToggle.hidden = model.progress.watched === 0
+    if (nodes.watchedToggleInput.checked !== hideWatched) nodes.watchedToggleInput.checked = hideWatched
     nodes.removedToggle.hidden = model.removedCount === 0
     if (nodes.removedToggleInput.checked !== showRemoved) nodes.removedToggleInput.checked = showRemoved
     renderLessons()

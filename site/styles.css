@@ -221,6 +221,10 @@ button.tag { min-height: 44px; cursor: pointer; }
 .lesson-panel { padding: 0; overflow: hidden; }
 .lesson-panel__header { padding: .8rem .9rem; border-bottom: 1px solid var(--border); display: flex; gap: .6rem; justify-content: space-between; align-items: center; }
 .lesson-panel__header strong { font-size: .92rem; }
+/* Two filters share this corner, so they wrap rather than widening the panel
+   past a phone viewport. */
+.lesson-panel__toggles { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem .7rem; min-width: 0; }
+.lesson-toggle { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; cursor: pointer; }
 .lesson-list { display: grid; max-height: min(55vh, 580px); overflow: auto; }
 .lesson-row { width: 100%; min-height: 54px; display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: .55rem; align-items: center; border: 0; border-bottom: 1px solid rgba(38,52,66,.72); background: transparent; color: var(--text); padding: .55rem .75rem; text-align: left; cursor: pointer; }
 .lesson-row:hover { background: rgba(255,255,255,.025); }
@@ -379,6 +383,39 @@ input[type="file"] { max-width: 100%; }
   color: var(--text);
   font-size: .85rem;
   text-align: center;
+}
+
+/* --- Docked player actions ------------------------------------------------ */
+
+/* Below the two-column breakpoint course.js moves .player-actions to the end of
+   the page so its containing block spans the whole scroll; sticky then keeps it
+   at the bottom of the viewport wherever the viewer is. Marking a lesson watched
+   and jumping to the next one are the two things done constantly while
+   watching, and they were previously only reachable by scrolling back up to the
+   player. A 2-up grid rather than flex-wrap so the row count is predictable at
+   every phone width. */
+@media (max-width: 1023px) {
+  .player-actions--docked {
+    position: sticky;
+    /* Below the toast region's z-index 60: a toast should still cover this. */
+    z-index: 25;
+    bottom: calc(.5rem + env(safe-area-inset-bottom, 0px));
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+    margin: 1rem 0 0;
+    padding: .5rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: rgba(9, 23, 35, .94);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, .28);
+  }
+  .player-actions--docked > :last-child { grid-column: 1 / -1; }
+  /* The bar is the last element in flow, so scrolling to the end already clears
+     every other row from behind it. The page's usual 4rem tail would only
+     strand the bar in the middle of the screen at full scroll. */
+  .page:has(.player-actions--docked) { padding-bottom: 1.25rem; }
 }
 
 .install-steps {

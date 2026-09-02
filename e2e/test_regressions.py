@@ -162,6 +162,60 @@ def test_no_horizontal_overflow(page, open_app, width):
         assert overflow <= 0, f'{route} overflows by {overflow}px at {width}px'
 
 
+@pytest.mark.parametrize('width', [360, 412])
+def test_player_actions_stay_in_the_viewport_on_phones(page, open_app, width):
+    """The two actions used constantly while watching must stay on screen at
+    phone widths however far the page is scrolled.
+
+    Uses the 40-lesson playlist deliberately: on a three-lesson course the page
+    barely scrolls and the buttons never leave the viewport, which is why this
+    went unnoticed. On a real course, scrolling down to the lesson list used to
+    carry them off the top of the screen (y = -39 at 412x740), so marking a
+    lesson watched meant scrolling back up to the player every time.
+    """
+    page.set_viewport_size({'width': width, 'height': 740})
+    open_app('#/add')
+    add_course(page, 'large', tags='Big')
+
+    page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+    page.wait_for_timeout(150)
+    height = page.evaluate('window.innerHeight')
+    for name in ['✓ Mark as watched', 'Next unwatched →']:
+        button = page.get_by_role('button', name=name)
+        expect(button).to_be_visible()
+        box = button.bounding_box()
+        assert box is not None, f'{name} has no box at {width}px'
+        assert 0 <= box['y'] and box['y'] + box['height'] <= height, (
+            f'{name} sits outside the {width}x740 viewport at y={box["y"]}')
+        assert 0 <= box['x'] and box['x'] + box['width'] <= width, (
+            f'{name} overflows horizontally at {width}px')
+
+    # Reachable means clickable, not merely painted.
+    page.get_by_role('button', name='✓ Mark as watched').click()
+    expect(page.get_by_role('button', name='✓ Mark unwatched')).to_be_visible()
+
+
+def test_docked_actions_disappear_when_no_lesson_is_playable(page, open_app):
+    """Docked, the actions sit outside .player-column, so hiding that column no
+    longer takes them with it. A course whose lessons have all been retired must
+    not be left with a bar of buttons that act on nothing."""
+    page.set_viewport_size({'width': 412, 'height': 740})
+    open_app('#/add')
+    add_rust_course(page)
+    page.evaluate("""async () => {
+      const { CourseStore } = await import('./src/storage.js')
+      const store = new CourseStore()
+      const snapshot = await store.snapshot()
+      for (const v of snapshot.videos) {
+        await store.updateVideo(v.courseId, v.videoId, { removedAt: Date.now() })
+      }
+    }""")
+    page.reload()
+    expect(page.get_by_role('heading', name='No active lessons')).to_be_visible()
+    expect(page.get_by_role('button', name='✓ Mark as watched')).to_be_hidden()
+    expect(page.get_by_role('button', name='Next unwatched →')).to_be_hidden()
+
+
 def test_course_can_be_deleted(page, open_app):
     """Audit #9. A local-first app must let users remove their own data."""
     open_app('#/add')

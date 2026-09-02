@@ -103,6 +103,27 @@ def test_manual_watched_state_can_be_corrected(page, open_app):
     expect(page.get_by_text('0 / 3 watched')).to_be_visible()
 
 
+def test_completed_lessons_are_hidden_by_default(page, open_app):
+    open_app('#/add')
+    add_rust_course(page)
+    lessons = page.locator('.lesson-list')
+    expect(lessons).to_contain_text('Introduction to Rust')
+
+    # The lesson on screen stays listed even once complete, so the viewer does
+    # not lose their place the moment they mark it watched.
+    page.get_by_role('button', name='✓ Mark as watched').click()
+    expect(lessons).to_contain_text('Introduction to Rust')
+
+    # Moving on is what actually retires it from the list.
+    page.get_by_role('button', name='Next unwatched →').click()
+    expect(lessons).not_to_contain_text('Introduction to Rust')
+    expect(page.locator('.lesson-panel__header')).to_contain_text('1 / 3 completed · 1 hidden')
+
+    page.locator('input[aria-label="Hide completed lessons"]').uncheck()
+    expect(lessons).to_contain_text('Introduction to Rust')
+    expect(page.locator('.lesson-panel__header')).not_to_contain_text('hidden')
+
+
 def test_library_search_and_combined_tag_filters(page, open_app):
     open_app('#/add')
     add_rust_course(page)
