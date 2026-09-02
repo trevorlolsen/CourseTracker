@@ -56,7 +56,10 @@ img { display: block; max-width: 100%; }
 .topbar__inner {
   max-width: var(--page);
   margin: 0 auto;
-  padding: .7rem 1rem;
+  /* Installed standalone on a notched phone there is no browser chrome, so the
+     sticky topbar would sit under the status bar. index.html sets
+     viewport-fit=cover, which makes these insets non-zero exactly then. */
+  padding: calc(.7rem + env(safe-area-inset-top, 0px)) calc(1rem + env(safe-area-inset-right, 0px)) .7rem calc(1rem + env(safe-area-inset-left, 0px));
   display: flex;
   align-items: center;
   gap: .8rem;
@@ -363,3 +366,27 @@ input[type="file"] { max-width: 100%; }
 
 /* Non-text UI boundaries need 3:1 against their surface (WCAG 1.4.11). */
 :root { --border: #3b4d60; }
+
+/* --- Installable shell ---------------------------------------------------- */
+
+/* One strip in the app shell rather than a notice per page. navigator.onLine
+   is advisory only (it reports true on a captive portal), so the wording says
+   what is unavailable rather than asserting the network is down. */
+.offline-strip {
+  padding: .5rem calc(1rem + env(safe-area-inset-right, 0px)) .5rem calc(1rem + env(safe-area-inset-left, 0px));
+  background: rgba(230, 184, 92, .12);
+  border-bottom: 1px solid var(--warning);
+  color: var(--text);
+  font-size: .85rem;
+  text-align: center;
+}
+
+.install-steps {
+  margin: .75rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+  font-size: .9rem;
+  display: grid;
+  gap: .35rem;
+}
+.install-note { margin-top: .75rem; }

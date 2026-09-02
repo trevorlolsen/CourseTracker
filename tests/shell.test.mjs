@@ -13,6 +13,9 @@ test('the entry point is a relative, build-free ES module suitable for a Pages s
   assert.match(html, /type="module" src="\.\/src\/app\.js"/)
   assert.match(html, /href="\.\/styles\.css"/)
   assert.doesNotMatch(html, /src="\//, 'absolute asset paths break a repository subpath')
+  // The manifest and apple-touch-icon links are subject to the same rule; an
+  // absolute href would point at the account root, not this project.
+  assert.doesNotMatch(html, /href="\/[^/]/, 'absolute link paths break a repository subpath')
 })
 
 test('the app container is not itself a live region', async () => {
@@ -23,7 +26,7 @@ test('the app container is not itself a live region', async () => {
 })
 
 test('no module imports a bare package specifier', async () => {
-  const files = ['app.js', 'dom.js', 'domain.js', 'storage.js', 'backup.js', 'youtube.js', 'view-models.js']
+  const files = ['app.js', 'dom.js', 'domain.js', 'storage.js', 'backup.js', 'youtube.js', 'view-models.js', 'install.js']
   for (const file of files) {
     const source = await text(`../site/src/${file}`)
     for (const match of source.matchAll(/from\s+'([^']+)'/g)) {

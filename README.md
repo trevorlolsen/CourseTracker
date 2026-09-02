@@ -134,8 +134,14 @@ therefore absent.
 project page on `<user>.github.io`. IndexedDB and `sessionStorage` are scoped
 to the origin, so any other site deployed on the same account can read or
 erase this library, and a script-injection bug in one of them affects all of
-them. If the account hosts anything else, serve CourseTracker from a custom
-domain or a dedicated account.
+them.
+
+The offline app cache widens this. Cache Storage is origin-scoped too, so
+another page on the account can overwrite CourseTracker's cached scripts and
+the service worker will serve them as same-origin code; a service worker
+published at the account root can take scope `/` and intercept every request
+to this app. If the account hosts anything else at all, serve CourseTracker
+from a custom domain or a dedicated account.
 
 The E2E test adapter (`?e2e=1`) is honoured only on `localhost`, `127.0.0.1`,
 and `[::1]`, so a shared link cannot switch the deployed app into test mode.
@@ -143,6 +149,52 @@ and `[::1]`, so a shared link cannot switch the deployed app into test mode.
 A metadata failure does not prevent core tracking because video IDs are the durable lesson identity.
 
 For another device, export a CourseTracker backup and transfer the JSON file with download or the browser's native file-sharing UI when supported.
+
+## Installing on a phone
+
+CourseTracker is installable. **Settings → Install on this device** offers a
+real install button where the browser supports one (Chrome on Android) and
+written Add-to-Home-Screen steps everywhere else (Safari on iOS has no install
+API). Installing gives a home-screen icon, a standalone window, and a launch
+that does not wait on the network.
+
+**Installing does not move your library.** The browser and the installed app
+can hold separate local data. Export a backup first, then import it once the
+installed app opens.
+
+**What works offline:** the app shell, the library, progress, tag editing, and
+backup export. **What does not:** playlist discovery and playback, both of
+which are YouTube. `site/sw.js` caches only CourseTracker's own files and
+passes every cross-origin request through untouched. Offline video playback
+remains a non-goal.
+
+Installing also protects the library on iOS: Safari clears storage for websites
+left unused for about a week, but exempts installed apps.
+
+### Maintaining the offline shell
+
+`site/sw.js` precaches an explicit `SHELL` list under a cache named for
+`SHELL_REVISION`, a hash of the bytes of those files. **Any change to a shipped
+file requires `npm run pwa:rev`**, and `npm test` fails until it is run. This is
+not busywork: a browser only reinstalls a service worker when the worker script
+itself changes, so without it an edit would leave installed users serving stale
+code permanently.
+
+```bash
+npm run pwa:rev   # rewrite SHELL_REVISION in site/sw.js after changing site/
+npm run icons     # regenerate site/icons/*.png from the mark
+```
+
+The icons are generated and committed because there is no build step;
+`scripts/generate-icons.mjs` writes PNG by hand over `node:zlib` and takes no
+dependencies.
+
+The worker registers on every host, including localhost, so development
+exercises the deployed path. During `npm run dev`, use a hard reload or
+DevTools → Application → **Update on reload** to bypass the cache. If the app
+ever looks wrong or out of date, **Settings → Offline app files → Reload from
+the server** discards the cached copy and turns the worker off for the rest of
+the session.
 
 ## Real YouTube smoke test
 
@@ -170,6 +222,11 @@ Automated browser tests use a deterministic YouTube adapter so CI does not depen
     cap here — a truncated discovery would otherwise look like a mass deletion on
     refresh. The mass-removal confirmation guards against silent data loss, but
     the underlying cap still needs to be known.
+11. **Install the deployed site on a real phone.** DevTools → Application →
+    Manifest must show no errors; then install, confirm the icon and the
+    standalone window, and confirm the topbar clears the status bar on a
+    notched iPhone. Turn on airplane mode and confirm the app still opens and
+    lists courses with the offline strip showing.
 
 A metadata/oEmbed failure is acceptable if video IDs, embedded/open-on-YouTube playback, and progress tracking still work.
 
@@ -200,6 +257,11 @@ CourseTracker needs IndexedDB and modern ES module support. If IndexedDB is disa
 ## v1 non-goals
 
 No accounts, cloud sync, background refresh, notes, ratings, favorites, multi-playlist courses, playlist editing, arbitrary single-video courses, offline video playback, or native apps.
+
+The app is installable (see [Installing on a phone](#installing-on-a-phone) and
+`docs/decisions/0002-installable-pwa-shell.md`), but that caches only the app's
+own files. Offline *video* remains out of scope, and there is still no
+background sync.
 
 A configurable completion threshold is also out of scope. v1 stored one in an
 IndexedDB `settings` store that nothing read; the v2 schema migration removes it.

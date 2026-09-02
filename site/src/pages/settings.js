@@ -2,6 +2,7 @@ import {
   MAX_BACKUP_BYTES, createBackupFromSnapshot, mergeBackupData, parseBackup, remapBackupForReplace,
 } from '../backup.js'
 import { button, h, setText, showToast } from '../dom.js'
+import { canPrompt, isInstalled, promptInstall, subscribe, SW_OPT_OUT_KEY } from '../install.js'
 
 function makeBackupFile(backup, prefix = 'course-tracker-backup') {
   return new File(
@@ -25,7 +26,7 @@ function downloadFile(file) {
 export async function renderSettingsPage(container, { store }) {
   const state = {
     backup: null, error: '', replaceConfirmed: false,
-    confirming: null, wiping: false,
+    confirming: null, wiping: false, removingOfflineFiles: false,
   }
   let destroyed = false
 
@@ -80,12 +81,41 @@ export async function renderSettingsPage(container, { store }) {
     }
   } catch { /* File sharing not supported */ }
 
+  // Every state of the install section is built once here and toggled through
+  // update(), like the confirm rows below it. Rebuilding on subscription
+  // updates would drop focus mid-interaction.
+  const installButton = button('Install CourseTracker', { className: 'button button--primary' })
+  installButton.addEventListener('click', () => void install())
+  const installSteps = h('ol', { className: 'install-steps' },
+    h('li', { text: 'Open this page in Safari on iPhone or iPad, or Chrome on Android.' }),
+    h('li', { text: 'Tap the Share button on iOS, or the ⋮ menu on Android.' }),
+    h('li', { text: 'Choose “Add to Home Screen”, then confirm.' }))
+  const installSection = h('section', { className: 'panel settings-section settings-section--wide' },
+    h('h2', { text: 'Install on this device' }),
+    h('p', { className: 'muted', text: 'Installing gives CourseTracker a home-screen icon and its own window, and it opens without a network. It does not give you offline video — playback and playlist discovery always need YouTube.' }),
+    h('div', { className: 'inline-note', text: 'Installing does not move your library. This browser and the installed app can hold separate local data, so export a backup above first, then import it once the installed app opens.' }),
+    h('p', { className: 'small muted install-note', text: 'Installing also protects your data. Safari clears storage for websites left unused for about a week, but not for installed apps.' }),
+    h('div', { className: 'button-row' }, installButton),
+    h('p', { className: 'small subtle install-note', text: 'No install button? Add it by hand:' }),
+    installSteps)
+
   const wipeButton = button('Delete all local data', { className: 'button button--danger' })
   const confirmWipeRow = h('div', { className: 'confirm-row' },
     h('span', { className: 'small', text: 'This erases every course, tag, and resume position stored in this browser. It cannot be undone.' }),
     button('Delete everything', { className: 'button button--danger button--small', onClick: () => void wipe() }),
     button('Cancel', { className: 'button button--ghost button--small', onClick: () => { state.confirming = null; update() } }))
   wipeButton.addEventListener('click', () => { state.confirming = 'wipe'; update() })
+
+  // The escape hatch for a misbehaving offline copy. The removal has to hold
+  // across the reload that follows it, or the fresh page would immediately
+  // register the same worker again.
+  const offlineFilesButton = button('Reload from the server', { className: 'button button--secondary' })
+  offlineFilesButton.addEventListener('click', () => void removeOfflineFiles())
+  const offlineFilesSection = h('section', { className: 'panel settings-section settings-section--wide' },
+    h('h2', { text: 'Offline app files' }),
+    h('p', { className: 'muted', text: 'CourseTracker keeps a copy of its own pages and scripts so it can open without a network. These are program files, not your data — your courses and progress are stored separately and are never touched here.' }),
+    h('div', { className: 'inline-note', text: 'If the app looks wrong or out of date, this discards that copy and fetches everything fresh. Offline access stays off for the rest of this session and comes back the next time you open CourseTracker.' }),
+    h('div', { className: 'button-row' }, offlineFilesButton))
 
   const page = h('main', { className: 'page page--narrow' },
     h('div', { className: 'page-header' },
@@ -102,10 +132,12 @@ export async function renderSettingsPage(container, { store }) {
         h('h2', { text: 'Import a backup' }),
         h('p', { className: 'muted', text: 'Preview the file first, then merge it with this browser or replace this browser’s local library.' }),
         fileInput, errorNote, preview),
+      installSection,
       h('section', { className: 'panel settings-section settings-section--wide' },
         h('h2', { text: 'Privacy & network use' }),
         h('p', { className: 'muted', text: 'Your courses, tags, progress, and resume positions stay in this browser until you export them. CourseTracker has no server. Your browser still contacts YouTube for playlist discovery, embedded playback, thumbnails, and optional lesson metadata.' }),
-        h('div', { className: 'inline-note', text: 'There are no CourseTracker accounts, API keys, analytics, or background sync in v1. Playback uses youtube-nocookie.com.' })),
+        h('div', { className: 'inline-note', text: 'There are no CourseTracker accounts, API keys, or analytics. Playback uses youtube-nocookie.com. The offline worker caches only CourseTracker’s own files and sends nothing anywhere; there is no background sync.' })),
+      offlineFilesSection,
       h('section', { className: 'panel settings-section settings-section--wide' },
         h('h2', { text: 'Danger zone' }),
         h('p', { className: 'muted', text: 'Export a backup first if you might want this data again.' }),
@@ -124,7 +156,11 @@ export async function renderSettingsPage(container, { store }) {
   } else {
     update()
   }
-  return { destroy() { destroyed = true } }
+
+  // Without releasing this, install.js accumulates a dead callback for every
+  // visit to Settings.
+  const unsubscribeInstall = subscribe(() => update())
+  return { destroy() { destroyed = true; unsubscribeInstall() } }
 
   function update() {
     if (destroyed) return
@@ -143,6 +179,14 @@ export async function renderSettingsPage(container, { store }) {
     }
     confirmWipeRow.hidden = state.confirming !== 'wipe'
     wipeButton.disabled = state.wiping
+
+    // Already installed: nothing here applies. Otherwise the manual steps stay
+    // visible either way, so iOS — which has no install API — is never left
+    // without instructions and no user agent sniffing is needed.
+    installSection.hidden = isInstalled()
+    installButton.hidden = !canPrompt()
+    offlineFilesSection.hidden = !('serviceWorker' in navigator)
+    offlineFilesButton.disabled = state.removingOfflineFiles
   }
 
   function loadBackupText(text) {
@@ -207,6 +251,37 @@ export async function renderSettingsPage(container, { store }) {
       update()
     } catch (error) {
       state.error = error?.message ?? 'Backup replace failed. Your local library was not changed.'
+      update()
+    }
+  }
+
+  async function install() {
+    const outcome = await promptInstall()
+    if (outcome === 'accepted') showToast('CourseTracker installed. Import a backup to bring your library across.', 'success')
+    update()
+  }
+
+  async function removeOfflineFiles() {
+    state.removingOfflineFiles = true
+    update()
+    try {
+      // Read on the next load, before any registration happens.
+      sessionStorage.setItem(SW_OPT_OUT_KEY, '1')
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map((registration) => registration.unregister()))
+      const names = await caches.keys()
+      await Promise.all(names
+        .filter((name) => name.startsWith('course-tracker-'))
+        .map((name) => caches.delete(name)))
+      // Reload so the page is served by the network rather than the worker
+      // that was just unregistered but is still controlling this document.
+      location.reload()
+    } catch (error) {
+      sessionStorage.removeItem(SW_OPT_OUT_KEY)
+      // A toast, not state.error: that node lives in the import section and
+      // would report this under the wrong heading.
+      showToast(error?.message ?? 'Could not remove the offline app files.', 'error')
+      state.removingOfflineFiles = false
       update()
     }
   }

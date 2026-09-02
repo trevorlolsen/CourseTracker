@@ -43,20 +43,40 @@ def base_url():
     process.wait(timeout=5)
 
 
-@pytest.fixture()
-def page():
+@contextlib.contextmanager
+def _browser_page(service_workers, viewport=None):
     with sync_playwright() as p:
         launch_options = {"headless": True}
         system_chromium = Path("/usr/bin/chromium")
         if system_chromium.exists():
             launch_options["executable_path"] = str(system_chromium)
         browser = p.chromium.launch(**launch_options)
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(
+            viewport=viewport or {"width": 1280, "height": 900},
+            service_workers=service_workers,
+        )
         page = context.new_page()
         page.set_default_timeout(6000)
         yield page
         context.close()
         browser.close()
+
+
+@pytest.fixture()
+def page():
+    # Blocked by default. The app registers its service worker on every host,
+    # including localhost, so that the deployed code path is the one under test
+    # -- but a worker serving cached modules would make every other suite
+    # depend on cache state instead of on the files on disk. test_pwa.py opts
+    # back in through pwa_page.
+    with _browser_page(service_workers="block") as page:
+        yield page
+
+
+@pytest.fixture()
+def pwa_page():
+    with _browser_page(service_workers="allow") as page:
+        yield page
 
 
 @pytest.fixture()

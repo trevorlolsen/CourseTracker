@@ -11,13 +11,32 @@
     a style attribute on the iframe it creates, so style attributes are allowed
     via style-src-attr while injected <style> elements stay blocked.
     frame-ancestors is ignored in a meta tag, so it is deliberately absent.
+
+    manifest-src is required: without it the manifest fetch falls back to
+    default-src 'none' and the app cannot be installed. worker-src is not
+    needed today (it falls back through child-src to script-src 'self') but is
+    stated so a future tightening of script-src cannot silently break service
+    worker registration.
+
+    This policy does NOT cover sw.js. A service worker's CSP comes from the
+    headers on its own response, and GitHub Pages sends none, so the worker
+    runs unconstrained. Keep sw.js small enough to audit by eye.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-src https://www.youtube-nocookie.com https://www.youtube.com; img-src 'self' data: https://i.ytimg.com https://*.ytimg.com; connect-src https://www.youtube.com; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-src https://www.youtube-nocookie.com https://www.youtube.com; img-src 'self' data: https://i.ytimg.com https://*.ytimg.com; connect-src https://www.youtube.com; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#07111b" />
   <meta name="description" content="CourseTracker turns YouTube playlists into local-first course dashboards with progress tracking." />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Courses" />
+  <!-- black-translucent puts the page under the status bar, which the topbar's
+       safe-area padding in styles.css accounts for. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>CourseTracker</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237c4dff'/%3E%3Cpath d='M24 18l24 14-24 14z' fill='white'/%3E%3C/svg%3E" />
+  <!-- iOS reads the home-screen icon from this link, not from the manifest. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon-180.png" />
+  <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
