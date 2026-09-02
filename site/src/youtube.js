@@ -1,4 +1,11 @@
+/** Player iframes embed from the no-cookie host. */
 const EMBED_ORIGIN = 'https://www.youtube-nocookie.com'
+/**
+ * The IFrame API bootstrap is only served from www.youtube.com; the no-cookie
+ * host returns 404 for /iframe_api. Loading it from there broke discovery and
+ * embedded playback everywhere while the stubbed browser tests kept passing.
+ */
+const IFRAME_API_URL = 'https://www.youtube.com/iframe_api'
 
 const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'])
 const WEB_PROTOCOLS = new Set(['https:', 'http:'])
@@ -85,7 +92,7 @@ export function loadYouTubeIframeApi() {
     }
     const timeout = setTimeout(() => finish(() => reject(new Error('YouTube IFrame API timed out')), { removeScript: true }), 10000)
     window.onYouTubeIframeAPIReady = ready
-    script.src = `${EMBED_ORIGIN}/iframe_api`
+    script.src = IFRAME_API_URL
     script.async = true
     script.onerror = () => finish(() => reject(new Error('Unable to load YouTube IFrame API')), { removeScript: true })
     document.head.appendChild(script)

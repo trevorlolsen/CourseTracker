@@ -39,7 +39,12 @@ test('the entry point ships a Content Security Policy without unsafe sources', a
   assert.match(csp, /default-src 'none'/)
   assert.match(csp, /object-src 'none'/)
   assert.match(csp, /base-uri 'none'/)
-  assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/)
+  assert.doesNotMatch(csp, /unsafe-eval/)
+  // YouTube's widget script sets a style attribute on the iframe it creates.
+  // That single allowance must stay scoped to attributes, never to elements.
+  assert.match(csp, /style-src-attr 'unsafe-inline'/)
+  assert.doesNotMatch(csp.replace(/style-src-attr 'unsafe-inline'/, ''), /unsafe-inline/,
+    "'unsafe-inline' is only acceptable on style-src-attr")
   assert.doesNotMatch(csp, /\s\*[\s;]|https?:\/\/\*[\s;]/, 'a bare wildcard source defeats the policy')
 })
 
@@ -57,8 +62,13 @@ test('deploy workflow pins every action to a commit SHA', async () => {
   }
 })
 
-test('playback and the API loader use the no-cookie host', async () => {
+test('player iframes use the no-cookie host but the API script comes from www.youtube.com', async () => {
   const youtube = await text('../site/src/youtube.js')
-  assert.match(youtube, /youtube-nocookie\.com/)
-  assert.doesNotMatch(youtube, /script\.src = 'https:\/\/www\.youtube\.com/)
+  assert.match(youtube, /const EMBED_ORIGIN = 'https:\/\/www\.youtube-nocookie\.com'/)
+  // youtube-nocookie.com returns 404 for /iframe_api; only www.youtube.com serves it.
+  assert.match(youtube, /const IFRAME_API_URL = 'https:\/\/www\.youtube\.com\/iframe_api'/)
+  assert.doesNotMatch(youtube, /youtube-nocookie\.com\/iframe_api|\$\{EMBED_ORIGIN\}\/iframe_api/,
+    'the IFrame API bootstrap is not served from the no-cookie host')
+  const csp = (await text('../site/index.html')).match(/Content-Security-Policy" content="([^"]+)"/)[1]
+  assert.match(csp, /script-src[^;]*https:\/\/www\.youtube\.com/, 'CSP must allow the API script host')
 })

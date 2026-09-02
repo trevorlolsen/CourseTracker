@@ -6,11 +6,13 @@
     GitHub Pages cannot send response headers, so the Content Security Policy
     lives here. It allows exactly the hosts the app talks to: the YouTube
     IFrame API and its player frames, YouTube thumbnails, and the oEmbed
-    endpoint. Inline styles are set through the CSSOM (element.style), which
-    CSP permits without 'unsafe-inline'. frame-ancestors is ignored in a meta
-    tag, so it is deliberately absent.
+    endpoint. The app sets inline styles through the CSSOM (element.style),
+    which CSP permits without 'unsafe-inline', but YouTube's widget script puts
+    a style attribute on the iframe it creates, so style attributes are allowed
+    via style-src-attr while injected <style> elements stay blocked.
+    frame-ancestors is ignored in a meta tag, so it is deliberately absent.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-src https://www.youtube-nocookie.com https://www.youtube.com; img-src 'self' data: https://i.ytimg.com https://*.ytimg.com; connect-src https://www.youtube.com; style-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; frame-src https://www.youtube-nocookie.com https://www.youtube.com; img-src 'self' data: https://i.ytimg.com https://*.ytimg.com; connect-src https://www.youtube.com; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#07111b" />
   <meta name="description" content="CourseTracker turns YouTube playlists into local-first course dashboards with progress tracking." />

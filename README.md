@@ -115,9 +115,10 @@ All application links are hash routes such as `#/course/<id>`, so refreshing a c
 
 All durable CourseTracker data lives in the current browser's IndexedDB database named `course-tracker`. CourseTracker has no server and does not send progress or tags anywhere. Settings has a control to delete all of it.
 
-The browser still contacts YouTube. Discovery and playback embed from
-`www.youtube-nocookie.com`, though the IFrame API bootstrap it loads fetches
-its widget script from `www.youtube.com`. Thumbnails come from `i.ytimg.com`,
+The browser still contacts YouTube. Player iframes for discovery and playback
+embed from `www.youtube-nocookie.com`, but the IFrame API script that creates
+them is loaded from `www.youtube.com`, the only host that serves it (the
+no-cookie host returns 404 for `/iframe_api`). Thumbnails come from `i.ytimg.com`,
 and the optional title lookup uses the oEmbed endpoint on `www.youtube.com`,
 which is the only host that serves it — so YouTube can still see which videos
 you look up. "Open on YouTube" links deliberately point at `www.youtube.com` so
