@@ -65,6 +65,9 @@ export async function renderCoursePage(container, { store, courseId, query }) {
   // Cleared on lesson change or a backward seek: an explicit "unwatched" must
   // not be undone by the tail of the same playback session.
   let suppressAutoComplete = false
+  // Shown over the player when a lesson plays to the end; hidden again by a
+  // replay, a lesson change or Dismiss.
+  let endCardVisible = false
 
   const nodes = buildSkeleton()
   container.replaceChildren(nodes.page)
@@ -143,8 +146,22 @@ export async function renderCoursePage(container, { store, courseId, query }) {
     const resumeHint = h('div', { className: 'small muted' })
     const currentPanel = h('div', { className: 'panel current-lesson' }, lessonEyebrow, lessonTitle, resumeHint)
     const playerActions = h('div', { className: 'player-actions' }, watchedButton, nextButton, youtubeLink)
+    // The slot keeps the bar's in-flow height while the bar itself is docked,
+    // so docking never shifts the page under the viewer's finger.
+    const actionsSlot = h('div', { className: 'player-actions-slot' }, playerActions)
+
+    const endEyebrow = h('div', { className: 'eyebrow' })
+    const endTitle = h('strong', { className: 'player-end-card__title' })
+    const playNextButton = button('▶ Play next lesson', { className: 'button button--primary' })
+    const dismissEndButton = button('Dismiss', { className: 'button button--ghost' })
+    const endCard = h('div', { className: 'player-end-card', role: 'group', 'aria-label': 'Lesson finished', hidden: true },
+      endEyebrow, endTitle, h('div', { className: 'button-row' }, playNextButton, dismissEndButton))
+    // Built around the host before the player mounts, so the iframe is never
+    // moved (see the note on renderCoursePage).
+    const playerStage = h('div', { className: 'player-stage' }, playerHost, endCard)
+
     const playerColumn = h('section', { className: 'player-column' },
-      playerHost, playerActions, warningHost, currentPanel)
+      playerStage, actionsSlot, warningHost, currentPanel)
 
     const disclosure = button('Course Content ▴', { className: 'button button--secondary lesson-disclosure', 'aria-expanded': 'true', 'aria-label': 'Course Content' })
     const lessonCount = h('div', { className: 'small muted' })
@@ -176,20 +193,32 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       setText(disclosure, contentExpanded ? 'Course Content ▴' : 'Course Content ▾')
       lessonContent.hidden = !contentExpanded
     })
-    // Below the two-column breakpoint the actions move to the end of the page
-    // and stick to the bottom of the viewport, so they stay in reach however
-    // far the viewer has scrolled. The node is MOVED, never copied: a second
-    // set of buttons would give two elements the same accessible name.
+    // Below the two-column breakpoint the actions dock to the bottom of the
+    // viewport once the viewer scrolls past them, so they stay in reach down
+    // in the lesson list. They dock only when their slot is ABOVE the
+    // viewport: the player sits above the slot, so a docked bar can never
+    // cover the video or its fullscreen control. The bar is restyled in
+    // place, never copied: a second set of buttons would give two elements
+    // the same accessible name.
+    //
+    // A scroll check rather than an IntersectionObserver: an observer only
+    // reports changes in intersection, so a fling or jump from below the slot
+    // straight to above it never fires and the bar stayed undocked.
     const wideLayout = window.matchMedia('(min-width: 1024px)')
-    const placeActions = () => {
-      const parent = wideLayout.matches ? playerColumn : page
-      if (playerActions.parentNode === parent) return
-      if (wideLayout.matches) playerColumn.insertBefore(playerActions, warningHost)
-      else page.append(playerActions)
-      setClass(playerActions, `player-actions${wideLayout.matches ? '' : ' player-actions--docked'}`)
+    let dockFrame = 0
+    const applyDock = () => {
+      dockFrame = 0
+      const topbarBottom = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0
+      const dock = !wideLayout.matches && !actionsSlot.hidden && actionsSlot.offsetParent !== null
+        && actionsSlot.getBoundingClientRect().bottom <= topbarBottom
+      if (dock === playerActions.classList.contains('player-actions--docked')) return
+      actionsSlot.style.minHeight = dock ? `${actionsSlot.offsetHeight}px` : ''
+      setClass(playerActions, `player-actions${dock ? ' player-actions--docked' : ''}`)
     }
-    wideLayout.addEventListener('change', placeActions)
-    placeActions()
+    const scheduleDock = () => { if (!dockFrame) dockFrame = requestAnimationFrame(applyDock) }
+    window.addEventListener('scroll', scheduleDock, { passive: true })
+    window.addEventListener('resize', scheduleDock)
+    wideLayout.addEventListener('change', scheduleDock)
 
     removedToggleInput.addEventListener('change', () => { showRemoved = removedToggleInput.checked; update() })
     watchedToggleInput.addEventListener('change', () => { hideWatched = watchedToggleInput.checked; update() })
@@ -203,14 +232,25 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       if (next) void goToVideo(next.videoId)
       else showToast('No other unwatched lessons remain.', 'info')
     })
+    playNextButton.addEventListener('click', () => {
+      const next = selectNextUnwatched(videos, currentVideo?.videoId)
+      if (next) void goToVideo(next.videoId)
+    })
+    dismissEndButton.addEventListener('click', () => { endCardVisible = false; update() })
 
     return {
       page, title, tags, bar, caption, refreshButton, retryButton, editButton, editPanel,
       playerHost, playerColumn, playerActions, lessonPanel, watchedButton, nextButton, youtubeLink, warningHost,
+      endCard, endEyebrow, endTitle, playNextButton,
       lessonEyebrow, lessonTitle, resumeHint, currentPanel,
       lessonCount, watchedToggle, watchedToggleInput, removedToggle, removedToggleInput,
       lessonList, summary, duplicateNote, emptyNote,
-      releaseLayout: () => wideLayout.removeEventListener('change', placeActions),
+      releaseLayout: () => {
+        cancelAnimationFrame(dockFrame)
+        window.removeEventListener('scroll', scheduleDock)
+        window.removeEventListener('resize', scheduleDock)
+        wideLayout.removeEventListener('change', scheduleDock)
+      },
     }
   }
 
@@ -275,8 +315,8 @@ export async function renderCoursePage(container, { store, courseId, query }) {
     const hasLesson = Boolean(currentVideo)
     nodes.emptyNote.hidden = hasLesson
     nodes.playerColumn.hidden = !hasLesson
-    // Hidden in its own right: while docked the actions sit outside the player
-    // column, so hiding the column no longer takes them with it.
+    // Hidden in its own right as well: a docked bar is position: fixed, and
+    // must never be left acting on nothing.
     nodes.playerActions.hidden = !hasLesson
     nodes.lessonPanel.hidden = !hasLesson
 
@@ -290,6 +330,7 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       nodes.resumeHint.hidden = !showResume
       if (showResume) setText(nodes.resumeHint, `Resume at ${formatDuration(currentVideo.resumeSeconds)}`)
     }
+    renderEndCard(hasLesson)
 
     const hiddenNote = model.hiddenWatchedCount > 0 ? ` · ${model.hiddenWatchedCount} hidden` : ''
     setText(nodes.lessonCount, `${model.progress.watched} / ${model.progress.active} completed${hiddenNote}`)
@@ -310,6 +351,22 @@ export async function renderCoursePage(container, { store, courseId, query }) {
     if (duplicates) {
       setText(nodes.duplicateNote, `YouTube returned ${duplicates} duplicate playlist ${duplicates === 1 ? 'entry' : 'entries'}; CourseTracker kept the first occurrence.`)
     }
+  }
+
+  function renderEndCard(hasLesson) {
+    const show = endCardVisible && hasLesson
+    const wasHidden = nodes.endCard.hidden
+    nodes.endCard.hidden = !show
+    if (!show) return
+    // Computed after flush() has applied the auto-complete, so the lesson that
+    // just ended is never offered as "next".
+    const next = selectNextUnwatched(videos, currentVideo.videoId)
+    nodes.playNextButton.hidden = !next
+    setText(nodes.endEyebrow, next ? `Up next · Lesson ${next.position + 1}` : 'Lesson finished')
+    setText(nodes.endTitle, next ? next.title ?? shortVideoLabel(next.videoId) : 'No unwatched lessons left — course complete!')
+    // Only pull focus along if the viewer was already working the player;
+    // otherwise the card would yank a keyboard user out of the lesson list.
+    if (wasHidden && next && nodes.playerColumn.contains(document.activeElement)) nodes.playNextButton.focus()
   }
 
   function renderLessons() {
@@ -361,7 +418,7 @@ export async function renderCoursePage(container, { store, courseId, query }) {
       const handle = await mountPlayer(nodes.playerHost, {
         videoId: currentVideo.videoId,
         startSeconds: currentVideo.resumeSeconds ?? 0,
-        onSnapshot: (snapshot) => { if (!destroyed) void flush(snapshot) },
+        onSnapshot: (snapshot) => { if (!destroyed) void onPlayerSnapshot(snapshot) },
         onEmbedStatus: (status) => { if (!destroyed) applyEmbedStatus(status) },
       })
       if (destroyed) handle?.destroy?.()
@@ -372,6 +429,18 @@ export async function renderCoursePage(container, { store, courseId, query }) {
         nodes.playerHost.replaceChildren(h('div', { className: 'player-placeholder', text: 'Embedded playback is unavailable. Use Open on YouTube below.' }))
       }
     }
+  }
+
+  async function onPlayerSnapshot(snapshot) {
+    await flush(snapshot)
+    if (destroyed || (snapshot.state !== 'ended' && snapshot.state !== 'playing')) return
+    // A snapshot from the lesson we just navigated away from must not raise
+    // the card over the next one.
+    if (snapshot.videoId && snapshot.videoId !== currentVideo?.videoId) return
+    const visible = snapshot.state === 'ended'
+    if (visible === endCardVisible) return
+    endCardVisible = visible
+    update()
   }
 
   function applyEmbedStatus(status) {
@@ -396,6 +465,7 @@ export async function renderCoursePage(container, { store, courseId, query }) {
 
     currentVideo = target
     suppressAutoComplete = false
+    endCardVisible = false
     const now = Date.now()
     course = { ...course, currentVideoId: videoId, lastOpenedAt: now, updatedAt: now }
     await store.updateCourse(course.id, { currentVideoId: videoId, lastOpenedAt: now, updatedAt: now })

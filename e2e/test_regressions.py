@@ -195,6 +195,84 @@ def test_player_actions_stay_in_the_viewport_on_phones(page, open_app, width):
     expect(page.get_by_role('button', name='✓ Mark unwatched')).to_be_visible()
 
 
+@pytest.mark.parametrize('size', [(412, 740), (740, 412)], ids=['portrait', 'landscape'])
+def test_action_bar_does_not_cover_the_player_on_phones(page, open_app, size):
+    """The bar used to be pinned to the bottom of the viewport permanently, so
+    with the player on screen it sat over the bottom of the video, which is where
+    YouTube's controls and fullscreen button are (most of the video in
+    landscape). It may only dock once the player has scrolled out of view."""
+    width, height = size
+    page.set_viewport_size({'width': width, 'height': height})
+    open_app('#/add')
+    add_course(page, 'large', tags='Big')
+    page.evaluate('window.scrollTo(0, 0)')
+    page.wait_for_timeout(150)
+
+    actions = page.locator('.player-actions')
+    expect(actions).not_to_have_class('player-actions player-actions--docked')
+    frame = page.locator('.player-frame').bounding_box()
+    bar = actions.bounding_box()
+    overlaps = (bar['x'] < frame['x'] + frame['width'] and frame['x'] < bar['x'] + bar['width']
+                and bar['y'] < frame['y'] + frame['height'] and frame['y'] < bar['y'] + bar['height'])
+    assert not overlaps, f'action bar {bar} covers the player {frame} at {width}x{height}'
+
+    # Scrolled into the lesson list it docks, and scrolling back undocks it.
+    page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+    expect(actions).to_have_class('player-actions player-actions--docked')
+    page.evaluate('window.scrollTo(0, 0)')
+    expect(actions).to_have_class('player-actions')
+
+
+def test_ended_video_offers_next_lesson(page, open_app):
+    """When a lesson finishes, continuing must be one obvious tap on the player."""
+    open_app('#/add')
+    add_rust_course(page)
+    card = page.get_by_role('group', name='Lesson finished')
+    expect(card).to_be_hidden()
+    before = player(page)['mountId']
+
+    set_state(page, 'playing')
+    set_state(page, 'ended')
+    expect(card).to_be_visible()
+    expect(card).to_contain_text('Ownership and Borrowing')
+
+    card.get_by_role('button', name='▶ Play next lesson').click()
+    expect(page.locator('.lesson-row--active')).to_contain_text('Ownership and Borrowing')
+    current = player(page)
+    assert current['videoId'] == 'rust-2'
+    assert current['mountId'] == before, 'playing the next lesson remounted the player'
+    expect(card).to_be_hidden()
+
+
+def test_end_card_can_be_dismissed_and_hides_on_replay(page, open_app):
+    open_app('#/add')
+    add_rust_course(page)
+    card = page.get_by_role('group', name='Lesson finished')
+    set_state(page, 'ended')
+    expect(card).to_be_visible()
+    card.get_by_role('button', name='Dismiss').click()
+    expect(card).to_be_hidden()
+
+    set_state(page, 'ended')
+    expect(card).to_be_visible()
+    set_state(page, 'playing')
+    expect(card).to_be_hidden()
+
+
+def test_end_card_on_last_unwatched_lesson(page, open_app):
+    open_app('#/add')
+    add_rust_course(page)
+    for _ in range(2):
+        page.get_by_role('button', name='✓ Mark as watched').click()
+        page.get_by_role('button', name='Next unwatched →').click()
+    expect(page.locator('.lesson-row--active')).to_contain_text('Enums and Pattern Matching')
+
+    set_state(page, 'ended')
+    card = page.get_by_role('group', name='Lesson finished')
+    expect(card).to_contain_text('course complete')
+    expect(card.get_by_role('button', name='▶ Play next lesson')).to_be_hidden()
+
+
 def test_docked_actions_disappear_when_no_lesson_is_playable(page, open_app):
     """Docked, the actions sit outside .player-column, so hiding that column no
     longer takes them with it. A course whose lessons have all been retired must

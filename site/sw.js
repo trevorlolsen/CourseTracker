@@ -14,7 +14,7 @@
  * installed user pinned to stale code forever, because a browser only
  * reinstalls a worker when the worker script itself changes.
  */
-const SHELL_REVISION = '74cbf1a111a8'
+const SHELL_REVISION = '0b88a0fe8c63'
 const CACHE = `course-tracker-${SHELL_REVISION}`
 
 const SHELL = [
