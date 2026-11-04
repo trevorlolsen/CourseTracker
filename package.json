@@ -12,6 +12,6 @@
     "check": "npm run test && npm run e2e"
   },
   "devDependencies": {
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.7"
   }
 }
